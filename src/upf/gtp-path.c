@@ -54,12 +54,66 @@
 #include "rule-match.h"
 
 #define UPF_GTP_HANDLED     1
+#define UPF_MDNS_IPV4_ADDR  0xe00000fbU
+#define UPF_MDNS_PORT       5353
 
 const uint8_t proxy_mac_addr[] = { 0x0e, 0x00, 0x00, 0x00, 0x00, 0x01 };
 
 static ogs_pkbuf_pool_t *packet_pool = NULL;
 
 static void upf_gtp_handle_multicast(ogs_pkbuf_t *recvbuf);
+
+static bool is_ipv4_mdns(ogs_pkbuf_t *recvbuf)
+{
+    struct ip *ip_h = NULL;
+    uint8_t *udp_h = NULL;
+    size_t ip_hlen;
+    uint16_t src_port, dst_port;
+
+    ogs_assert(recvbuf);
+    ogs_assert(recvbuf->data);
+
+    if (recvbuf->len < sizeof(struct ip))
+        return false;
+
+    ip_h = (struct ip *)recvbuf->data;
+    if (ip_h->ip_v != 4 || ip_h->ip_p != IPPROTO_UDP ||
+            ntohl(ip_h->ip_dst.s_addr) != UPF_MDNS_IPV4_ADDR)
+        return false;
+
+    ip_hlen = ip_h->ip_hl * 4;
+    if (ip_hlen < sizeof(struct ip) || recvbuf->len < ip_hlen + 8)
+        return false;
+
+    udp_h = recvbuf->data + ip_hlen;
+    memcpy(&src_port, udp_h, sizeof(src_port));
+    memcpy(&dst_port, udp_h + sizeof(src_port), sizeof(dst_port));
+
+    return ntohs(src_port) == UPF_MDNS_PORT &&
+        ntohs(dst_port) == UPF_MDNS_PORT;
+}
+
+static bool upf_gtp_send_multicast_to_session(
+        upf_sess_t *sess, ogs_pkbuf_t *recvbuf)
+{
+    ogs_pfcp_pdr_t *pdr = NULL;
+    ogs_pfcp_user_plane_report_t report;
+
+    ogs_assert(sess);
+    ogs_assert(recvbuf);
+
+    ogs_list_for_each(&sess->pfcp.pdr_list, pdr) {
+        if (pdr->src_if == OGS_PFCP_INTERFACE_CORE) {
+            ogs_pkbuf_t *sendbuf = ogs_pkbuf_copy(recvbuf);
+            ogs_assert(sendbuf);
+            ogs_assert(true == ogs_pfcp_up_handle_pdr(
+                pdr, OGS_GTPU_MSGTYPE_GPDU, 0, NULL, sendbuf, &report));
+            return true;
+        }
+    }
+
+    return false;
+}
 
 static int check_framed_routes(upf_sess_t *sess, int family, uint32_t *addr)
 {
@@ -164,8 +218,11 @@ static void _gtpv1_tun_recv_common_cb(
     }
 
     sess = upf_sess_find_by_ue_ip_address(recvbuf);
-    if (!sess)
+    if (!sess) {
+        if (ogs_global_conf()->parameter.multicast)
+            upf_gtp_handle_multicast(recvbuf);
         goto cleanup;
+    }
 
     ogs_list_for_each(&sess->pfcp.pdr_list, pdr) {
         far = pdr->far;
@@ -1041,10 +1098,21 @@ static void upf_gtp_handle_multicast(ogs_pkbuf_t *recvbuf)
 {
     struct ip *ip_h =  NULL;
     struct ip6_hdr *ip6_h = NULL;
-    ogs_pfcp_user_plane_report_t report;
 
     ip_h = (struct ip *)recvbuf->data;
-    if (ip_h->ip_v == 6) {
+    if (is_ipv4_mdns(recvbuf)) {
+        upf_sess_t *sess = NULL;
+        int forwarded = 0;
+
+        /* IPv4 mDNS is link-local multicast. Replicate reflected packets
+         * to every active IPv4 PDU session. */
+        ogs_list_for_each(&upf_self()->sess_list, sess) {
+            if (sess->ipv4)
+                forwarded += upf_gtp_send_multicast_to_session(sess, recvbuf);
+        }
+        ogs_debug("IPv4 mDNS multicast forwarded to %d session(s)",
+                forwarded);
+    } else if (ip_h->ip_v == 6) {
 #if COMPILE_ERROR_IN_MAC_OS_X  /* Compiler error in Mac OS X platform */
         ip6_h = (struct ip6_hdr *)recvbuf->data;
         if (IN6_IS_ADDR_MULTICAST(&ip6_h->ip6_dst))
@@ -1056,28 +1124,18 @@ static void upf_gtp_handle_multicast(ogs_pkbuf_t *recvbuf)
 #endif
         {
             upf_sess_t *sess = NULL;
+            int forwarded = 0;
 
             /* IPv6 Multicast */
             ogs_list_for_each(&upf_self()->sess_list, sess) {
                 if (sess->ipv6) {
                     /* PDN IPv6 is available */
-                    ogs_pfcp_pdr_t *pdr = NULL;
-
-                    ogs_list_for_each(&sess->pfcp.pdr_list, pdr) {
-                        if (pdr->src_if == OGS_PFCP_INTERFACE_CORE) {
-                            ogs_pkbuf_t *sendbuf = ogs_pkbuf_copy(recvbuf);
-                            ogs_assert(sendbuf);
-                            ogs_assert(true ==
-                                ogs_pfcp_up_handle_pdr(
-                                    pdr, OGS_GTPU_MSGTYPE_GPDU, 0,
-                                    NULL, sendbuf, &report));
-                            break;
-                        }
-                    }
-
-                    return;
+                    forwarded +=
+                        upf_gtp_send_multicast_to_session(sess, recvbuf);
                 }
             }
+            ogs_debug("IPv6 multicast forwarded to %d session(s)",
+                    forwarded);
         }
     }
 }

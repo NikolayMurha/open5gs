@@ -1,2 +1,4 @@
 option('fuzzing', type: 'boolean', value: false, description: 'Enable fuzzing tests')
 option('lib_fuzzing_engine', type : 'string', value : '', description : 'Path to the libFuzzer engine library')
+option('lte_only', type : 'boolean', value : false, description : 'Build only LTE/EPC network functions')
+option('build_tests', type : 'boolean', value : true, description : 'Build Open5GS tests')

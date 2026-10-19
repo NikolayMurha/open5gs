@@ -19,26 +19,38 @@ open5gs_sysconfdir = join_paths(sysconfdir, 'open5gs')
 meson.add_install_script(python3_exe, '-c',
         mkdir_p.format(open5gs_sysconfdir))
 
-open5gs_conf = '''
-    mme.yaml
-    sgwc.yaml
-    sgwu.yaml
-    smf.yaml
-    amf.yaml
-    upf.yaml
-    hss.yaml
-    pcrf.yaml
-    nrf.yaml
-    scp.yaml
-    sepp1.yaml
-    sepp2.yaml
-    ausf.yaml
-    udm.yaml
-    udr.yaml
-    pcf.yaml
-    nssf.yaml
-    bsf.yaml
-'''.split()
+if get_option('lte_only')
+    open5gs_conf = '''
+        mme.yaml
+        sgwc.yaml
+        sgwu.yaml
+        smf.yaml
+        upf.yaml
+        hss.yaml
+        pcrf.yaml
+    '''.split()
+else
+    open5gs_conf = '''
+        mme.yaml
+        sgwc.yaml
+        sgwu.yaml
+        smf.yaml
+        amf.yaml
+        upf.yaml
+        hss.yaml
+        pcrf.yaml
+        nrf.yaml
+        scp.yaml
+        sepp1.yaml
+        sepp2.yaml
+        ausf.yaml
+        udm.yaml
+        udr.yaml
+        pcf.yaml
+        nssf.yaml
+        bsf.yaml
+    '''.split()
+endif
 
 foreach file : open5gs_conf
     gen = configure_file(

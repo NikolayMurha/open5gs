@@ -15,25 +15,37 @@
 # You should have received a copy of the GNU General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-systemd_conf_in = '''
-    open5gs-mmed.service
-    open5gs-sgwcd.service
-    open5gs-smfd.service
-    open5gs-amfd.service
-    open5gs-sgwud.service
-    open5gs-upfd.service
-    open5gs-hssd.service
-    open5gs-pcrfd.service
-    open5gs-nrfd.service
-    open5gs-scpd.service
-    open5gs-seppd.service
-    open5gs-ausfd.service
-    open5gs-udmd.service
-    open5gs-pcfd.service
-    open5gs-nssfd.service
-    open5gs-bsfd.service
-    open5gs-udrd.service
-'''.split()
+if get_option('lte_only')
+    systemd_conf_in = '''
+        open5gs-mmed.service
+        open5gs-sgwcd.service
+        open5gs-smfd.service
+        open5gs-sgwud.service
+        open5gs-upfd.service
+        open5gs-hssd.service
+        open5gs-pcrfd.service
+    '''.split()
+else
+    systemd_conf_in = '''
+        open5gs-mmed.service
+        open5gs-sgwcd.service
+        open5gs-smfd.service
+        open5gs-amfd.service
+        open5gs-sgwud.service
+        open5gs-upfd.service
+        open5gs-hssd.service
+        open5gs-pcrfd.service
+        open5gs-nrfd.service
+        open5gs-scpd.service
+        open5gs-seppd.service
+        open5gs-ausfd.service
+        open5gs-udmd.service
+        open5gs-pcfd.service
+        open5gs-nssfd.service
+        open5gs-bsfd.service
+        open5gs-udrd.service
+    '''.split()
+endif
 
 foreach file : systemd_conf_in
     configure_file(
